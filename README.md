@@ -16,7 +16,7 @@ Phishing Link Detector is a project designed to detect and classify phishing lin
 
 1. Clone the repository:
     ```bash
-    git clone https://github.com/your-username/Phishing-Link-Detector.git
+    git clone https://github.com/GittyCandy/Phishing-Link-Detector.git
     ```
 2. Open the Jupyter Notebook file in your preferred environment.
 

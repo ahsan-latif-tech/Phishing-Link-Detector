@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phishing Link Checker</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#16181d;--muted:#5d6470;--line:#e2e5ea;--accent:#2f5bea;--good:#1a7f45;--warn:#b26a00;--bad:#c62828}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1115;--card:#171a21;--text:#e8eaee;--muted:#9aa1ad;--line:#2a2f39;--accent:#7b9bff;--good:#4cc082;--warn:#f0a83a;--bad:#ff6b6b}}
+:root[data-theme="dark"]{--bg:#0f1115;--card:#171a21;--text:#e8eaee;--muted:#9aa1ad;--line:#2a2f39;--accent:#7b9bff;--good:#4cc082;--warn:#f0a83a;--bad:#ff6b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:40px 16px}
+h1{font-size:1.8rem;margin:0 0 4px}
+p.sub{color:var(--muted);margin:0 0 24px}
+form{display:flex;gap:8px;flex-wrap:wrap}
+input{flex:1 1 300px;min-width:0;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--text);font-size:1rem}
+button{padding:12px 20px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;font-size:1rem;cursor:pointer}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-top:24px}
+.verdict{font-size:1.3rem;font-weight:700}
+.meter{height:10px;border-radius:5px;background:var(--line);overflow:hidden;margin:12px 0 4px}
+.meter i{display:block;height:100%}
+ul{list-style:none;padding:0;margin:16px 0 0}
+li{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:.95rem}
+li b{min-width:72px;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
+.ok{color:var(--good)}.sus{color:var(--warn)}.ph{color:var(--bad)}
+small{color:var(--muted);display:block;margin-top:24px}
+.examples{margin-top:10px;font-size:.9rem;color:var(--muted)}
+.examples a{color:var(--accent);cursor:pointer;margin-right:10px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Phishing Link Checker</h1>
+  <p class="sub">Paste a link to check it against the URL-based features from the Phishing Link Detector dataset.</p>
+  <form id="f">
+    <input id="u" type="text" placeholder="https://example.com/login" autocomplete="off" required>
+    <button>Check</button>
+  </form>
+  <div class="examples">Try:
+    <a data-u="https://github.com">github.com</a>
+    <a data-u="http://192.168.4.20/paypal-secure-login@verify.account/update">IP + @ link</a>
+    <a data-u="http://bit.ly/3xYz9">shortened link</a>
+  </div>
+  <div id="out"></div>
+  <small>This page only looks at the link's text, so nothing is fetched and nothing leaves your browser. Page-content and domain-age features from the full model aren't covered here, so treat a "looks safe" result as a hint, not a guarantee.</small>
+</main>
+<script>
+const shorteners=/^(bit\.ly|goo\.gl|tinyurl\.com|t\.co|ow\.ly|is\.gd|buff\.ly|adf\.ly|bitly\.com|cutt\.ly|rb\.gy|shorturl\.at|tiny\.cc|rebrand\.ly|s\.id)$/i;
+function check(raw){
+  let s=raw.trim(); if(!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s='http://'+s;
+  let url; try{url=new URL(s)}catch{return null}
+  const host=url.hostname, r=[];
+  const add=(name,val,msg)=>r.push({name,val,msg}); // 1 ok, 0 suspicious, -1 phishing (dataset convention)
+  add('Using IP', /^\d{1,3}(\.\d{1,3}){3}$/.test(host)||host.startsWith('[')?-1:1, 'Domain is a raw IP address instead of a name');
+  const L=raw.length; add('Long URL', L<54?1:L<=75?0:-1, `Length is ${L} characters`);
+  add('Short URL', shorteners.test(host)?-1:1, 'Uses a link-shortening service that hides the real destination');
+  add('@ symbol', raw.includes('@')?-1:1, 'Contains "@", which makes the browser ignore everything before it');
+  add('Redirect //', raw.lastIndexOf('//')>7?-1:1, 'Contains an extra "//" that can redirect elsewhere');
+  add('Dash in domain', host.includes('-')?-1:1, 'Domain has a "-", common in look-alike names');
+  const dots=host.replace(/^www\./,'').split('.').length-2;
+  add('Subdomains', dots<=0?1:dots===1?0:-1, `${Math.max(dots,0)} subdomain level(s)`);
+  add('HTTPS', url.protocol==='https:'?1:-1, url.protocol==='https:'?'Uses HTTPS':'Not using HTTPS');
+  add('Port', !url.port||url.port==='80'||url.port==='443'?1:-1, url.port?`Non-standard port ${url.port}`:'Standard port');
+  add('"https" in domain', /https/i.test(host)?-1:1, 'Domain contains "https" to look secure');
+  return {host,r};
+}
+function render(res){
+  const out=document.getElementById('out');
+  if(!res){out.innerHTML='<div class="card">That doesn\'t look like a valid link.</div>';return}
+  const bad=res.r.filter(x=>x.val===-1).length, sus=res.r.filter(x=>x.val===0).length;
+  const score=Math.min(100,Math.round((bad*2+sus)/ (res.r.length*2)*100*2.2));
+  const [label,cls,col]=score>=45?['Likely phishing','ph','var(--bad)']:score>=15?['Suspicious','sus','var(--warn)']:['Looks safe','ok','var(--good)'];
+  const tag=v=>v===1?'<b class="ok">ok</b>':v===0?'<b class="sus">warn</b>':'<b class="ph">risk</b>';
+  const esc=t=>t.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  out.innerHTML=`<div class="card"><div class="verdict ${cls}">${label}</div>
+  <div class="meter"><i style="width:${Math.max(score,3)}%;background:${col}"></i></div>
+  <div style="color:var(--muted);font-size:.9rem">Risk score ${score}/100 · ${esc(res.host)}</div>
+  <ul>${res.r.sort((a,b)=>a.val-b.val).map(x=>`<li>${tag(x.val)}<span><strong>${x.name}</strong> — ${x.msg}</span></li>`).join('')}</ul></div>`;
+}
+document.getElementById('f').onsubmit=e=>{e.preventDefault();render(check(document.getElementById('u').value))};
+document.querySelectorAll('[data-u]').forEach(a=>a.onclick=()=>{document.getElementById('u').value=a.dataset.u;render(check(a.dataset.u))});
+</script>
+</body>
+</html>
